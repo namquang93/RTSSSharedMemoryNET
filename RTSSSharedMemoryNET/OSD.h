@@ -35,6 +35,11 @@ namespace RTSSSharedMemoryNET {
         static void openSharedMemory(HANDLE* phMapFile, LPRTSS_SHARED_MEMORY* ppMem);
         static void closeSharedMemory(HANDLE hMapFile, LPRTSS_SHARED_MEMORY pMem);
         static DateTime timeFromTickcount(DWORD ticks);
+        
+        static DWORD EmbedGraphInBuffer(LPBYTE buffer, DWORD bufferSize, DWORD offset, 
+            array<float>^ data, DWORD dataPos, DWORD dataCount, 
+            LONG width, LONG height, LONG margin, float min, float max, DWORD flags);
+        static String^ ProcessGraphTags(String^ text, LPBYTE buffer, DWORD bufferSize, DWORD% bufferOffset);
     };
 
     LPCWSTR MBtoWC(const char* str);

@@ -3,6 +3,7 @@
 #include "stdafx.h"
 
 #include "OSD.h"
+#include <cfloat>
 
 #define TICKS_PER_MICROSECOND 10
 #define RTSS_VERSION(x, y) ((x << 16) + y)
@@ -87,13 +88,34 @@ namespace RTSSSharedMemoryNET {
         if( text == nullptr )
             throw gcnew ArgumentNullException("text");
 
-        LPCSTR lpText = (LPCSTR)Marshal::StringToHGlobalAnsi(text).ToPointer();
-        if( strlen(lpText) > 4095 )
-            throw gcnew ArgumentException("Text exceeds max length of 4095 when converted to ANSI", "text");
-
         HANDLE hMapFile = NULL;
         LPRTSS_SHARED_MEMORY pMem = NULL;
         openSharedMemory(&hMapFile, &pMem);
+
+        // Allocate buffer for embedded objects (v2.12+)
+        LPBYTE lpBuffer = nullptr;
+        DWORD dwBufferSize = 262144; // Size of pEntry->buffer
+        DWORD dwBufferOffset = 0;
+        String^ processedText = text;
+
+        if( pMem->dwVersion >= RTSS_VERSION(2,12) )
+        {
+            lpBuffer = new BYTE[dwBufferSize];
+            ZeroMemory(lpBuffer, dwBufferSize);
+            
+            // Process graph tags and get modified text
+            processedText = ProcessGraphTags(text, lpBuffer, dwBufferSize, dwBufferOffset);
+        }
+
+        LPCSTR lpText = (LPCSTR)Marshal::StringToHGlobalAnsi(processedText).ToPointer();
+        if( strlen(lpText) > 4095 )
+        {
+            if( lpBuffer != nullptr )
+                delete[] lpBuffer;
+            Marshal::FreeHGlobal(IntPtr((LPVOID)lpText));
+            closeSharedMemory(hMapFile, pMem);
+            throw gcnew ArgumentException("Text exceeds max length of 4095 when converted to ANSI", "text");
+        }
 
         //start at either our previously used slot, or the top
         for(DWORD i=(m_osdSlot == 0 ? 1 : m_osdSlot); i < pMem->dwOSDArrSize; i++)
@@ -116,6 +138,10 @@ namespace RTSSSharedMemoryNET {
                 else
                     strncpy_s(pEntry->szOSD, lpText, sizeof(pEntry->szOSD)-1);
 
+                // Copy embedded object buffer if we have data (v2.12+)
+                if( lpBuffer != nullptr && dwBufferOffset > 0 )
+                    CopyMemory(pEntry->buffer, lpBuffer, min(dwBufferOffset, sizeof(pEntry->buffer)));
+
                 pMem->dwOSDFrame++; //forces OSD update
                 break;
             }
@@ -127,6 +153,9 @@ namespace RTSSSharedMemoryNET {
                 i = 1;
             }
         }
+
+        if( lpBuffer != nullptr )
+            delete[] lpBuffer;
 
         closeSharedMemory(hMapFile, pMem);
         Marshal::FreeHGlobal(IntPtr((LPVOID)lpText));
@@ -302,5 +331,126 @@ namespace RTSSSharedMemoryNET {
     DateTime OSD::timeFromTickcount(DWORD ticks)
     {
         return DateTime::Now - TimeSpan::FromMilliseconds(ticks);
+    }
+
+    ///////////////////////////////////////////////////////////////////////////////
+    // Graph embedding helper methods
+    ///////////////////////////////////////////////////////////////////////////////
+
+    DWORD OSD::EmbedGraphInBuffer(LPBYTE lpObjBuffer, DWORD dwObjBufferSize, DWORD dwOffset, 
+        array<float>^ lpBuffer, DWORD dwBufferPos, DWORD dwBufferSize, 
+        LONG dwWidth, LONG dwHeight, LONG dwMargin, FLOAT fltMin, FLOAT fltMax, DWORD dwFlags)
+    {
+        DWORD dwResult = 0;
+
+        if (dwOffset + sizeof(RTSS_EMBEDDED_OBJECT_GRAPH) + dwBufferSize * sizeof(FLOAT) > dwObjBufferSize)
+            //validate embedded object offset and size and ensure that we don't overrun the buffer
+            return 0;
+
+        LPRTSS_EMBEDDED_OBJECT_GRAPH lpGraph = (LPRTSS_EMBEDDED_OBJECT_GRAPH)(lpObjBuffer + dwOffset);
+            //get pointer to object in buffer
+
+        lpGraph->header.dwSignature = RTSS_EMBEDDED_OBJECT_GRAPH_SIGNATURE;
+        lpGraph->header.dwSize      = sizeof(RTSS_EMBEDDED_OBJECT_GRAPH) + dwBufferSize * sizeof(FLOAT);
+        lpGraph->header.dwWidth     = dwWidth;
+        lpGraph->header.dwHeight    = dwHeight;
+        lpGraph->header.dwMargin    = dwMargin;
+        lpGraph->dwFlags            = dwFlags;
+        lpGraph->fltMin             = fltMin;
+        lpGraph->fltMax             = fltMax;
+        lpGraph->dwDataCount        = dwBufferSize;
+
+        if (lpBuffer != nullptr && dwBufferSize > 0)
+        {
+            pin_ptr<float> pinnedBuffer = &lpBuffer[0];
+            for (DWORD dwPos=0; dwPos<dwBufferSize; dwPos++)
+            {
+                FLOAT fltData = pinnedBuffer[dwBufferPos];
+
+                lpGraph->fltData[dwPos] = (fltData == FLT_MAX) ? 0 : fltData;
+
+                dwBufferPos = (dwBufferPos + 1) & (dwBufferSize - 1);
+            }
+        }
+
+        dwResult = lpGraph->header.dwSize;
+
+        return dwResult;
+    }
+
+    String^ OSD::ProcessGraphTags(String^ text, LPBYTE buffer, DWORD bufferSize, DWORD% bufferOffset)
+    {
+        String^ result = text;
+        int searchPos = 0;
+
+        // Define the graph tag patterns we support
+        array<String^>^ frametimeTags = gcnew array<String^> { "<G=<FT>>", "<G=%Frametime%>" };
+        array<String^>^ framerateTags = gcnew array<String^> { "<G=<FR>>", "<G=%Framerate%>" };
+
+        // Search for graph tags
+        while (true)
+        {
+            int tagStart = -1;
+            String^ foundTag = nullptr;
+            DWORD dwFlags = 0;
+            FLOAT fltMax = 0.0f;
+
+            // Search for frametime tags
+            for each (String^ tag in frametimeTags)
+            {
+                int pos = result->IndexOf(tag, searchPos);
+                if (pos != -1 && (tagStart == -1 || pos < tagStart))
+                {
+                    tagStart = pos;
+                    foundTag = tag;
+                    dwFlags = RTSS_EMBEDDED_OBJECT_GRAPH_FLAG_FRAMETIME;
+                    fltMax = 50000.0f; // Default max for frametime (microseconds)
+                }
+            }
+
+            // Search for framerate tags
+            for each (String^ tag in framerateTags)
+            {
+                int pos = result->IndexOf(tag, searchPos);
+                if (pos != -1 && (tagStart == -1 || pos < tagStart))
+                {
+                    tagStart = pos;
+                    foundTag = tag;
+                    dwFlags = RTSS_EMBEDDED_OBJECT_GRAPH_FLAG_FRAMERATE;
+                    fltMax = 200.0f; // Default max for framerate
+                }
+            }
+
+            // No more tags found
+            if (tagStart == -1)
+                break;
+
+            LONG dwWidth = -32;  // Negative = chars
+            LONG dwHeight = -2;
+            LONG dwMargin = 1;
+            FLOAT fltMin = 0.0f;
+
+            // Embed graph (with null data - RTSS will auto-populate from app stats)
+            DWORD dwObjectSize = EmbedGraphInBuffer(buffer, bufferSize, bufferOffset, 
+                nullptr, 0, 0, dwWidth, dwHeight, dwMargin, fltMin, fltMax, dwFlags);
+
+            if (dwObjectSize > 0)
+            {
+                // Replace <G=...> with <OBJ=XXXXXXXX>
+                String^ objTag = String::Format("<OBJ={0:X8}>", bufferOffset);
+                result = result->Remove(tagStart, foundTag->Length);
+                result = result->Insert(tagStart, objTag);
+
+                bufferOffset += dwObjectSize;
+                searchPos = tagStart + objTag->Length;
+            }
+            else
+            {
+                // Failed to embed, skip this tag
+                searchPos = tagStart + foundTag->Length;
+            }
+        }
+
+        return result;
     }
 }

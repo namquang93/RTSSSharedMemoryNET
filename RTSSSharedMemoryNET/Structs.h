@@ -49,6 +49,28 @@ namespace RTSSSharedMemoryNET {
         MASK = (VIDEOCAPTUREFLAG_REQUEST_CAPTURE_START | VIDEOCAPTUREFLAG_REQUEST_CAPTURE_PROGRESS | VIDEOCAPTUREFLAG_REQUEST_CAPTURE_STOP),
     };
 
+    [Flags]
+    public enum class GraphFlags
+    {
+        None                = 0,
+        Filled              = RTSS_EMBEDDED_OBJECT_GRAPH_FLAG_FILLED,
+        Framerate           = RTSS_EMBEDDED_OBJECT_GRAPH_FLAG_FRAMERATE,
+        Frametime           = RTSS_EMBEDDED_OBJECT_GRAPH_FLAG_FRAMETIME,
+        Bar                 = RTSS_EMBEDDED_OBJECT_GRAPH_FLAG_BAR,
+        Background          = RTSS_EMBEDDED_OBJECT_GRAPH_FLAG_BGND,
+        Vertical            = RTSS_EMBEDDED_OBJECT_GRAPH_FLAG_VERTICAL,
+        Mirrored            = RTSS_EMBEDDED_OBJECT_GRAPH_FLAG_MIRRORED,
+        Autoscale           = RTSS_EMBEDDED_OBJECT_GRAPH_FLAG_AUTOSCALE,
+
+        FramerateMin        = RTSS_EMBEDDED_OBJECT_GRAPH_FLAG_FRAMERATE_MIN,
+        FramerateAvg        = RTSS_EMBEDDED_OBJECT_GRAPH_FLAG_FRAMERATE_AVG,
+        FramerateMax        = RTSS_EMBEDDED_OBJECT_GRAPH_FLAG_FRAMERATE_MAX,
+        Framerate1Dot0PercentLow = RTSS_EMBEDDED_OBJECT_GRAPH_FLAG_FRAMERATE_1DOT0_PERCENT_LOW,
+        Framerate0Dot1PercentLow = RTSS_EMBEDDED_OBJECT_GRAPH_FLAG_FRAMERATE_0DOT1_PERCENT_LOW,
+
+        BarRange            = RTSS_EMBEDDED_OBJECT_GRAPH_FLAG_BAR_RANGE,
+    };
+
     ///////////////////////////////////////////////////////////////////////////
 
     [DebuggerDisplay("{Owner}, {Text}")]

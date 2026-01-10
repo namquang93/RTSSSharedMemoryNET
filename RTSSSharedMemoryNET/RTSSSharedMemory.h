@@ -325,6 +325,11 @@ typedef struct RTSS_SHARED_MEMORY
 		char	szOSDEx[4096];
 			//extended OSD slot text
 
+		//next fields are valid for v2.12 and newer shared memory format only
+
+		BYTE	buffer[262144];
+			//OSD slot data buffer for embedded objects
+
 	} RTSS_SHARED_MEMORY_OSD_ENTRY, *LPRTSS_SHARED_MEMORY_OSD_ENTRY;
 
 	//application descriptor structure
@@ -453,5 +458,62 @@ typedef struct RTSS_SHARED_MEMORY
 		//array of application descriptors
 
 } RTSS_SHARED_MEMORY, *LPRTSS_SHARED_MEMORY;
+/////////////////////////////////////////////////////////////////////////////
+// Embedded object structures
+/////////////////////////////////////////////////////////////////////////////
+typedef struct RTSS_EMBEDDED_OBJECT
+{
+	DWORD dwSignature;
+		//embedded object signature
+	DWORD dwSize;
+		//embedded object size in bytes
+	LONG dwWidth;
+		//embedded object width in pixels (if positive) or in chars (if negative)
+	LONG dwHeight;
+		//embedded object height in pixels (if positive) or in chars (if negative)
+	LONG dwMargin;
+		//embedded object margin in pixels
+} RTSS_EMBEDDED_OBJECT, *LPRTSS_EMBEDDED_OBJECT;
+/////////////////////////////////////////////////////////////////////////////
+#define RTSS_EMBEDDED_OBJECT_GRAPH_SIGNATURE					'GR00'
+/////////////////////////////////////////////////////////////////////////////
+#define RTSS_EMBEDDED_OBJECT_GRAPH_FLAG_FILLED					1
+#define RTSS_EMBEDDED_OBJECT_GRAPH_FLAG_FRAMERATE				2
+#define RTSS_EMBEDDED_OBJECT_GRAPH_FLAG_FRAMETIME				4
+#define RTSS_EMBEDDED_OBJECT_GRAPH_FLAG_BAR						8
+#define RTSS_EMBEDDED_OBJECT_GRAPH_FLAG_BGND					16
+#define RTSS_EMBEDDED_OBJECT_GRAPH_FLAG_VERTICAL				32
+#define RTSS_EMBEDDED_OBJECT_GRAPH_FLAG_MIRRORED				64
+#define RTSS_EMBEDDED_OBJECT_GRAPH_FLAG_AUTOSCALE				128
+
+#define RTSS_EMBEDDED_OBJECT_GRAPH_FLAG_FRAMERATE_MIN			256
+#define RTSS_EMBEDDED_OBJECT_GRAPH_FLAG_FRAMERATE_AVG			512
+#define RTSS_EMBEDDED_OBJECT_GRAPH_FLAG_FRAMERATE_MAX			1024
+#define RTSS_EMBEDDED_OBJECT_GRAPH_FLAG_FRAMERATE_1DOT0_PERCENT_LOW	2048
+#define RTSS_EMBEDDED_OBJECT_GRAPH_FLAG_FRAMERATE_0DOT1_PERCENT_LOW	4096
+
+#define RTSS_EMBEDDED_OBJECT_GRAPH_FLAG_BAR_RANGE				8192			
+/////////////////////////////////////////////////////////////////////////////
+#pragma warning (disable : 4200)
+
+typedef struct RTSS_EMBEDDED_OBJECT_GRAPH
+{
+	RTSS_EMBEDDED_OBJECT header;
+		//embedded object header
+
+	DWORD dwFlags;
+		//bitmask containing RTSS_EMBEDDED_OBJECT_GRAPH_FLAG_XXX flags
+	FLOAT fltMin;
+		//graph mininum value
+	FLOAT fltMax;	
+		//graph maximum value
+	DWORD dwDataCount;
+		//count of data samples in fltData array
+	FLOAT fltData[0];
+		//graph data samples array
+
+} RTSS_EMBEDDED_OBJECT_GRAPH, *LPRTSS_EMBEDDED_OBJECT_GRAPH;
+
+#pragma warning (default : 4200)
 /////////////////////////////////////////////////////////////////////////////
 #endif //_RTSS_SHARED_MEMORY_INCLUDED_
