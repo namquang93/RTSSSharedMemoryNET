@@ -383,52 +383,93 @@ namespace RTSSSharedMemoryNET {
         String^ result = text;
         int searchPos = 0;
 
-        // Define the graph tag patterns we support
-        array<String^>^ frametimeTags = gcnew array<String^> { "<G=<FT>>", "<G=%Frametime%>" };
-        array<String^>^ framerateTags = gcnew array<String^> { "<G=<FR>>", "<G=%Framerate%>" };
-
-        // Search for graph tags
+        // Search for graph tags in RTSS format: <G=source> or <G=source,width,height>
         while (true)
         {
-            int tagStart = -1;
-            String^ foundTag = nullptr;
-            DWORD dwFlags = 0;
-            FLOAT fltMax = 0.0f;
-
-            // Search for frametime tags
-            for each (String^ tag in frametimeTags)
-            {
-                int pos = result->IndexOf(tag, searchPos);
-                if (pos != -1 && (tagStart == -1 || pos < tagStart))
-                {
-                    tagStart = pos;
-                    foundTag = tag;
-                    dwFlags = RTSS_EMBEDDED_OBJECT_GRAPH_FLAG_FRAMETIME;
-                    fltMax = 50000.0f; // Default max for frametime (microseconds)
-                }
-            }
-
-            // Search for framerate tags
-            for each (String^ tag in framerateTags)
-            {
-                int pos = result->IndexOf(tag, searchPos);
-                if (pos != -1 && (tagStart == -1 || pos < tagStart))
-                {
-                    tagStart = pos;
-                    foundTag = tag;
-                    dwFlags = RTSS_EMBEDDED_OBJECT_GRAPH_FLAG_FRAMERATE;
-                    fltMax = 200.0f; // Default max for framerate
-                }
-            }
-
-            // No more tags found
+            int tagStart = result->IndexOf("<G=", searchPos);
             if (tagStart == -1)
                 break;
 
-            LONG dwWidth = -64;   // Negative = chars (64 chars wide)
-            LONG dwHeight = -1;   // 1 character tall (fits on one line)
+            // Find the matching closing '>' by counting nested brackets
+            int tagEnd = -1;
+            int bracketCount = 1; // We've already seen the opening '<'
+            for (int i = tagStart + 1; i < result->Length; i++)
+            {
+                if (result[i] == '<')
+                    bracketCount++;
+                else if (result[i] == '>')
+                {
+                    bracketCount--;
+                    if (bracketCount == 0)
+                    {
+                        tagEnd = i;
+                        break;
+                    }
+                }
+            }
+
+            if (tagEnd == -1)
+                break; // No matching closing bracket found
+
+            // Extract the full tag content: everything between <G= and >
+            String^ fullTag = result->Substring(tagStart, tagEnd - tagStart + 1);
+            String^ tagContent = result->Substring(tagStart + 3, tagEnd - tagStart - 3);
+
+            // Default values
+            DWORD dwFlags = 0;
+            LONG dwWidth = -64;   // Default: 64 chars wide
+            LONG dwHeight = -1;   // Default: 1 char tall
             LONG dwMargin = 1;
             FLOAT fltMin = 0.0f;
+            FLOAT fltMax = 200.0f;
+
+            // Parse the tag content: source[,width[,height]]
+            array<String^>^ parts = tagContent->Split(',');
+            
+            if (parts->Length == 0)
+            {
+                searchPos = tagEnd + 1;
+                continue;
+            }
+
+            // Parse source (first part)
+            String^ source = parts[0]->Trim();
+            
+            // Determine graph type from source
+            if (source == "<FT>" || source == "%Frametime%")
+            {
+                dwFlags = RTSS_EMBEDDED_OBJECT_GRAPH_FLAG_FRAMETIME;
+                fltMax = 50000.0f;
+            }
+            else if (source == "<FR>" || source == "%Framerate%")
+            {
+                dwFlags = RTSS_EMBEDDED_OBJECT_GRAPH_FLAG_FRAMERATE;
+                fltMax = 200.0f;
+            }
+            else
+            {
+                // Unknown source, skip
+                searchPos = tagEnd + 1;
+                continue;
+            }
+
+            // Parse optional width (second part)
+            if (parts->Length > 1)
+            {
+                String^ widthStr = parts[1]->Trim();
+                int width;
+                if (Int32::TryParse(widthStr, width))
+                    dwWidth = width;
+            }
+
+            // Parse optional height (third part)
+            if (parts->Length > 2)
+            {
+                String^ heightStr = parts[2]->Trim();
+                int height;
+                if (Int32::TryParse(heightStr, height))
+                    dwHeight = height;
+            }
 
             // Embed graph (with null data - RTSS will auto-populate from app stats)
             DWORD dwObjectSize = EmbedGraphInBuffer(buffer, bufferSize, bufferOffset, 
@@ -438,7 +479,7 @@ namespace RTSSSharedMemoryNET {
             {
                 // Replace <G=...> with <OBJ=XXXXXXXX>
                 String^ objTag = String::Format("<OBJ={0:X8}>", bufferOffset);
-                result = result->Remove(tagStart, foundTag->Length);
+                result = result->Remove(tagStart, fullTag->Length);
                 result = result->Insert(tagStart, objTag);
 
                 bufferOffset += dwObjectSize;
@@ -447,7 +488,7 @@ namespace RTSSSharedMemoryNET {
             else
             {
                 // Failed to embed, skip this tag
-                searchPos = tagStart + foundTag->Length;
+                searchPos = tagEnd + 1;
             }
         }
 
