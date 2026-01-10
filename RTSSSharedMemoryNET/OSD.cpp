@@ -425,8 +425,8 @@ namespace RTSSSharedMemoryNET {
             if (tagStart == -1)
                 break;
 
-            LONG dwWidth = -32;  // Negative = chars
-            LONG dwHeight = -2;
+            LONG dwWidth = -64;   // Negative = chars (64 chars wide)
+            LONG dwHeight = -1;   // 1 character tall (fits on one line)
             LONG dwMargin = 1;
             FLOAT fltMin = 0.0f;
 
